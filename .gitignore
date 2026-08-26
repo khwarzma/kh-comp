@@ -1,0 +1,66 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C++ Build Directories & Artifacts
+build/
+build-*/
+cmake-build-*/
+bin/
+lib/
+out/
+*.o
+*.obj
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+
+# C standard library & CTest output
+Testing/
+*.pth
+
+# C++ Tooling & IDEs
+.clion.source.upload/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosv
+*.sln
+*.vcxproj
+*.filters
+
+# Python Distribution & Packaging
+dist/
+eggs/
+.eggs/
+*.egg-info/
+*.egg
+.wheel/
+wheels/
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv/
+
+# Testing & Coverage Outputs
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.nox/
+.tox/
+
+# Sanitizer & Crash Logs
+*.dSYM/
+*.stackdump
+core
+
+# System OS Files
+.DS_Store
+Thumbs.db
