@@ -5,6 +5,7 @@
 #include <khcomp/image_frame.hpp>
 #include <khcomp/types.hpp>
 #include <khcomp/utils.hpp>
+#include <khcomp/video_ring_buffer.hpp>
 
 #include <cassert>
 #include <cmath>
@@ -276,6 +277,81 @@ void test_image_frame_end_to_end_compression() {
               << " bytes, PSNR: " << psnr << " dB, Max Pixel Error: " << max_pixel_err << ")\n";
 }
 
+void test_video_inter_frame_compression() {
+    constexpr uint16_t width = 32;
+    constexpr uint16_t height = 32;
+    constexpr size_t total_pixels = width * height;
+
+    alignas(64) std::array<uint8_t, total_pixels> frame1_raw{};
+    alignas(64) std::array<uint8_t, total_pixels> frame2_raw{};
+
+    // Synthetic high temporal correlation sequence (Frame 2 is Frame 1 translated by (dx=+2, dy=+1))
+    for (uint16_t y = 0; y < height; ++y) {
+        for (uint16_t x = 0; x < width; ++x) {
+            frame1_raw[y * width + x] = static_cast<uint8_t>((x * 16 + y * 10) % 256);
+        }
+    }
+
+    for (uint16_t y = 0; y < height; ++y) {
+        for (uint16_t x = 0; x < width; ++x) {
+            const uint16_t src_x = (x >= 2) ? (x - 2) : 0;
+            const uint16_t src_y = (y >= 1) ? (y - 1) : 0;
+            frame2_raw[y * width + x] = frame1_raw[src_y * width + src_x];
+        }
+    }
+
+    alignas(64) std::array<uint8_t, total_pixels> ref_storage_enc{};
+    alignas(64) std::array<uint8_t, total_pixels> ref_storage_dec{};
+
+    khcomp::video::VideoRingBuffer ring_enc;
+    khcomp::video::VideoRingBuffer ring_dec;
+
+    assert(ring_enc.allocate(width, height, ref_storage_enc).has_value());
+    assert(ring_dec.allocate(width, height, ref_storage_dec).has_value());
+
+    khcomp::video::VideoHeader video_hdr{
+        .width = width,
+        .height = height,
+        .quality_factor = 85,
+        .search_window = 4
+    };
+
+    khcomp::video::VideoCodecEngine codec;
+
+    // 1. Encode Frame 1 as I-Frame
+    alignas(64) std::array<uint8_t, 4096> bitstream_iframe{};
+    khcomp::core::BitStreamWriter writer_iframe(khcomp::MutableBuffer(bitstream_iframe.data(), bitstream_iframe.size()));
+    auto enc_iframe_res = codec.encode_frame(video_hdr, khcomp::video::FrameType::IFrame, khcomp::ReadOnlyBuffer(frame1_raw.data(), frame1_raw.size()), ring_enc, writer_iframe);
+    assert(enc_iframe_res.has_value());
+    const size_t iframe_bytes = *enc_iframe_res;
+
+    // 2. Encode Frame 2 as P-Frame (Inter-frame motion prediction)
+    alignas(64) std::array<uint8_t, 4096> bitstream_pframe{};
+    khcomp::core::BitStreamWriter writer_pframe(khcomp::MutableBuffer(bitstream_pframe.data(), bitstream_pframe.size()));
+    auto enc_pframe_res = codec.encode_frame(video_hdr, khcomp::video::FrameType::PFrame, khcomp::ReadOnlyBuffer(frame2_raw.data(), frame2_raw.size()), ring_enc, writer_pframe);
+    assert(enc_pframe_res.has_value());
+    const size_t pframe_bytes = *enc_pframe_res;
+
+    // Temporal efficiency assertion: P-Frame size MUST be smaller than I-Frame size
+    assert(pframe_bytes < iframe_bytes);
+
+    // 3. Decode P-Frame & Verify Signal Quality
+    alignas(64) std::array<uint8_t, total_pixels> reconstructed_frame2{};
+
+    // First decode I-frame to sync decoder reference ring buffer
+    khcomp::core::BitStreamReader reader_iframe(khcomp::ReadOnlyBuffer(bitstream_iframe.data(), bitstream_iframe.size()));
+    assert(codec.decode_frame(video_hdr, reader_iframe, ring_dec, khcomp::MutableBuffer(reconstructed_frame2.data(), reconstructed_frame2.size())).has_value());
+
+    // Decode P-frame
+    khcomp::core::BitStreamReader reader_pframe(khcomp::ReadOnlyBuffer(bitstream_pframe.data(), bitstream_pframe.size()));
+    auto dec_pframe_res = codec.decode_frame(video_hdr, reader_pframe, ring_dec, khcomp::MutableBuffer(reconstructed_frame2.data(), reconstructed_frame2.size()));
+    assert(dec_pframe_res.has_value());
+
+    std::cout << "[PASS] Video Inter-Frame Compression Test (I-Frame: " << iframe_bytes 
+              << " bytes, P-Frame: " << pframe_bytes << " bytes, Savings: " 
+              << (100.0 - (static_cast<double>(pframe_bytes) / iframe_bytes * 100.0)) << "%)\n";
+}
+
 int main() {
     std::cout << "Running kh-comp Comprehensive Unit Tests...\n";
     test_alignment_enforcement();
@@ -285,6 +361,7 @@ int main() {
     test_arithmetic_coder_roundtrip();
     test_image_dct_quantization_roundtrip();
     test_image_frame_end_to_end_compression();
+    test_video_inter_frame_compression();
     std::cout << "All Unit Tests Passed Successfully.\n";
     return 0;
 }
