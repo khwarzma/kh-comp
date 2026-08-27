@@ -23,7 +23,7 @@ struct DctCosTable {
     }
 };
 
-inline constexpr DctCosTable kDctCosLUT{};
+inline const DctCosTable kDctCosLUT{};
 
 // Precomputed scaling constants: C(0) = 1/sqrt(2), C(u>0) = 1.0
 inline constexpr std::array<float, kBlockSize> kCScale = {
