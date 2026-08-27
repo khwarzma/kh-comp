@@ -3,7 +3,7 @@ from pathlib import Path
 from setuptools import setup
 from pybind11.setup_helpers import Pybind11Extension, build_ext
 
-# اكتشاف كافة ملفات C++ تلقائياً لمنع أي Undefined Symbol مستقبلاً
+# اكتشاف كافة ملفات C++ تلقائياً
 cpp_sources = [str(p) for p in Path("src").rglob("*.cpp")]
 
 extra_compile_args = []
@@ -12,7 +12,13 @@ extra_link_args = []
 if sys.platform == "win32":
     extra_compile_args.extend(["/std:c++latest", "/O2"])
 else:
-    extra_compile_args.extend(["-std=c++23", "-O3", "-march=native", "-fvisibility=hidden"])
+    extra_compile_args.extend([
+        "-std=c++23",
+        "-O3",
+        "-march=native",
+        "-ftree-vectorize",
+        "-fvisibility=hidden"
+    ])
 
 ext_modules = [
     Pybind11Extension(
