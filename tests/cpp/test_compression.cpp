@@ -2,6 +2,7 @@
 #include <khcomp/comp_engine.hpp>
 #include <khcomp/context_model.hpp>
 #include <khcomp/image_engine.hpp>
+#include <khcomp/image_frame.hpp>
 #include <khcomp/types.hpp>
 #include <khcomp/utils.hpp>
 
@@ -215,14 +216,75 @@ void test_image_dct_quantization_roundtrip() {
     std::cout << "[PASS] Image DCT & Quantization Roundtrip Test (RMSE: " << rmse << ", Max Error: " << max_error << ")\n";
 }
 
+void test_image_frame_end_to_end_compression() {
+    constexpr uint16_t width = 16;
+    constexpr uint16_t height = 16;
+    constexpr size_t total_pixels = width * height;
+
+    alignas(64) std::array<uint8_t, total_pixels> original_frame{};
+    alignas(64) std::array<uint8_t, total_pixels> reconstructed_frame{};
+    alignas(64) std::array<uint8_t, 4096> compressed_bitstream{};
+
+    // Generate deterministic spatial gradient test image pattern
+    for (uint16_t y = 0; y < height; ++y) {
+        for (uint16_t x = 0; x < width; ++x) {
+            original_frame[y * width + x] = static_cast<uint8_t>((x * 12 + y * 8) % 256);
+        }
+    }
+
+    khcomp::image::ImageHeader header{
+        .width = width,
+        .height = height,
+        .format = khcomp::image::PixelFormat::Grayscale,
+        .quality_factor = 85
+    };
+
+    khcomp::image::ImageFramePipeline pipeline;
+
+    // 1. Encode Grayscale Image Frame -> Arithmetic Bitstream
+    khcomp::core::BitStreamWriter writer(khcomp::MutableBuffer(compressed_bitstream.data(), compressed_bitstream.size()));
+    auto enc_res = pipeline.encode_grayscale_frame(header, khcomp::ReadOnlyBuffer(original_frame.data(), original_frame.size()), writer);
+    assert(enc_res.has_value());
+
+    const size_t compressed_bytes = *enc_res;
+    assert(compressed_bytes > 0);
+
+    // 2. Decode Arithmetic Bitstream -> Reconstructed Grayscale Frame
+    khcomp::core::BitStreamReader reader(khcomp::ReadOnlyBuffer(compressed_bitstream.data(), compressed_bitstream.size()));
+    auto dec_res = pipeline.decode_grayscale_frame(header, reader, khcomp::MutableBuffer(reconstructed_frame.data(), reconstructed_frame.size()));
+    assert(dec_res.has_value());
+
+    // 3. Compute Frame Fidelity (PSNR & Peak Error)
+    double mse = 0.0;
+    double max_pixel_err = 0.0;
+
+    for (size_t i = 0; i < total_pixels; ++i) {
+        const double err = std::abs(static_cast<double>(original_frame[i]) - static_cast<double>(reconstructed_frame[i]));
+        mse += err * err;
+        if (err > max_pixel_err) {
+            max_pixel_err = err;
+        }
+    }
+    mse /= static_cast<double>(total_pixels);
+
+    const double psnr = (mse > 0.0) ? (10.0 * std::log10((255.0 * 255.0) / mse)) : 99.0;
+
+    // PSNR for Q=85 spatial gradient image frame should be > 32 dB
+    assert(psnr > 32.0);
+
+    std::cout << "[PASS] Image Frame End-to-End Test (Compressed: " << compressed_bytes 
+              << " bytes, PSNR: " << psnr << " dB, Max Pixel Error: " << max_pixel_err << ")\n";
+}
+
 int main() {
-    std::cout << "Running kh-comp Phase 1, 2 & 3.1 Infrastructure Unit Tests...\n";
+    std::cout << "Running kh-comp Comprehensive Unit Tests...\n";
     test_alignment_enforcement();
     test_bit_packing_and_reading();
     test_boundary_and_overflow_checks();
     test_context_model_adaptation_and_normalization();
     test_arithmetic_coder_roundtrip();
     test_image_dct_quantization_roundtrip();
+    test_image_frame_end_to_end_compression();
     std::cout << "All Unit Tests Passed Successfully.\n";
     return 0;
 }
