@@ -59,7 +59,7 @@ htmlcov/
 # Sanitizer & Crash Logs
 *.dSYM/
 *.stackdump
-core
+
 
 # System OS Files
 .DS_Store
