@@ -1,3 +1,4 @@
+#include <khcomp/audio_engine.hpp>
 #include <khcomp/bit_stream.hpp>
 #include <khcomp/comp_engine.hpp>
 #include <khcomp/context_model.hpp>
@@ -352,6 +353,70 @@ void test_video_inter_frame_compression() {
               << (100.0 - (static_cast<double>(pframe_bytes) / iframe_bytes * 100.0)) << "%)\n";
 }
 
+void test_audio_pcm16_compression() {
+    constexpr uint32_t sample_rate = 44100;
+    constexpr uint8_t channels = 2;
+    constexpr uint32_t num_samples = 1024; // Samples per channel
+    constexpr size_t total_interleaved_samples = num_samples * channels;
+    constexpr size_t pcm_byte_size = total_interleaved_samples * sizeof(int16_t);
+
+    alignas(64) std::vector<int16_t> original_pcm(total_interleaved_samples);
+    alignas(64) std::vector<int16_t> reconstructed_pcm(total_interleaved_samples);
+    alignas(64) std::array<uint8_t, pcm_byte_size * 2> bitstream_buffer{};
+
+    // Generate synthetic 440 Hz stereo sine wave signal
+    constexpr double frequency = 440.0;
+    constexpr double pi = 3.14159265358979323846;
+
+    for (uint32_t i = 0; i < num_samples; ++i) {
+        const double t = static_cast<double>(i) / sample_rate;
+        const int16_t sample_val = static_cast<int16_t>(16384.0 * std::sin(2.0 * pi * frequency * t));
+        original_pcm[i * channels] = sample_val;      // Left channel
+        original_pcm[i * channels + 1] = sample_val;  // Right channel
+    }
+
+    khcomp::audio::AudioHeader audio_hdr{
+        .sample_rate = sample_rate,
+        .channels = channels,
+        .num_samples = num_samples
+    };
+
+    khcomp::audio::AudioCodecEngine audio_engine;
+
+    // 1. Encode 16-bit PCM Audio -> Arithmetic Bitstream
+    khcomp::core::BitStreamWriter writer(khcomp::MutableBuffer(bitstream_buffer.data(), bitstream_buffer.size()));
+    auto enc_res = audio_engine.encode_pcm16(
+        audio_hdr,
+        khcomp::ReadOnlyBuffer(reinterpret_cast<const uint8_t*>(original_pcm.data()), pcm_byte_size),
+        writer
+    );
+    assert(enc_res.has_value());
+
+    const size_t compressed_bytes = *enc_res;
+    assert(compressed_bytes > 0);
+
+    // 2. Decode Bitstream -> Reconstructed 16-bit PCM Audio
+    khcomp::core::BitStreamReader reader(khcomp::ReadOnlyBuffer(bitstream_buffer.data(), bitstream_buffer.size()));
+    auto dec_res = audio_engine.decode_pcm16(
+        audio_hdr,
+        reader,
+        khcomp::MutableBuffer(reinterpret_cast<uint8_t*>(reconstructed_pcm.data()), pcm_byte_size)
+    );
+    assert(dec_res.has_value());
+    assert(*dec_res == pcm_byte_size);
+
+    // 3. Verify Lossless Roundtrip Precision
+    for (size_t i = 0; i < total_interleaved_samples; ++i) {
+        assert(original_pcm[i] == reconstructed_pcm[i]);
+    }
+
+    const double compression_ratio = static_cast<double>(pcm_byte_size) / static_cast<double>(compressed_bytes);
+
+    std::cout << "[PASS] Audio PCM16 Compression Test (Raw: " << pcm_byte_size 
+              << " bytes, Compressed: " << compressed_bytes 
+              << " bytes, Ratio: " << compression_ratio << "x)\n";
+}
+
 int main() {
     std::cout << "Running kh-comp Comprehensive Unit Tests...\n";
     test_alignment_enforcement();
@@ -362,6 +427,7 @@ int main() {
     test_image_dct_quantization_roundtrip();
     test_image_frame_end_to_end_compression();
     test_video_inter_frame_compression();
+    test_audio_pcm16_compression();
     std::cout << "All Unit Tests Passed Successfully.\n";
     return 0;
 }
