@@ -1,0 +1,46 @@
+[build-system]
+requires = [
+    "setuptools>=61.0",
+    "wheel",
+    "pybind11>=2.10.0"
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "khcomp"
+version = "0.1.0"
+description = "Zero-Allocation High-Throughput Media and Data Compression Engine in C++23"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+keywords = ["compression", "audio", "video", "image", "arithmetic-coding", "cpp23", "pybind11"]
+authors = [
+    { name = "IM4", email = "im4@bareeed.com" },
+    { name = "khwarzma", email = "khwarzma@bareeed.com" }
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Archiving :: Compression"
+]
+dependencies = [
+    "numpy>=1.22.0"
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0.0"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["khcomp*"]
+
+[tool.setuptools.package-data]
+khcomp = ["_native.pyi", "py.typed"]
