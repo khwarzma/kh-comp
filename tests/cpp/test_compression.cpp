@@ -1,10 +1,12 @@
 #include <khcomp/bit_stream.hpp>
 #include <khcomp/comp_engine.hpp>
 #include <khcomp/context_model.hpp>
+#include <khcomp/image_engine.hpp>
 #include <khcomp/types.hpp>
 #include <khcomp/utils.hpp>
 
 #include <cassert>
+#include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <string_view>
@@ -151,13 +153,76 @@ void test_arithmetic_coder_roundtrip() {
     std::cout << "[PASS] ArithmeticCoder Lossless Roundtrip Test\n";
 }
 
+void test_image_dct_quantization_roundtrip() {
+    khcomp::image::DctQuantEngine engine(90); // High quality setting
+
+    // 8x8 input block sample (Luminance values centered around 0 [-128, 127])
+    alignas(64) std::array<float, 64> original_block = {
+        52.0f, 55.0f, 61.0f, 66.0f, 70.0f, 61.0f, 64.0f, 73.0f,
+        63.0f, 59.0f, 55.0f, 90.0f, 109.0f, 85.0f, 69.0f, 72.0f,
+        62.0f, 59.0f, 68.0f, 113.0f, 144.0f, 104.0f, 66.0f, 73.0f,
+        63.0f, 58.0f, 71.0f, 122.0f, 154.0f, 106.0f, 70.0f, 69.0f,
+        67.0f, 61.0f, 68.0f, 104.0f, 126.0f, 88.0f, 68.0f, 70.0f,
+        79.0f, 65.0f, 60.0f, 70.0f, 77.0f, 68.0f, 58.0f, 75.0f,
+        85.0f, 71.0f, 64.0f, 59.0f, 55.0f, 61.0f, 65.0f, 83.0f,
+        87.0f, 79.0f, 69.0f, 68.0f, 65.0f, 76.0f, 78.0f, 94.0f
+    };
+
+    alignas(64) std::array<float, 64> dct_coeffs{};
+    alignas(64) std::array<int16_t, 64> quant_coeffs{};
+    alignas(64) std::array<int16_t, 64> zigzag_serialized{};
+    alignas(64) std::array<int16_t, 64> zigzag_deserialized{};
+    alignas(64) std::array<float, 64> dequant_coeffs{};
+    alignas(64) std::array<float, 64> reconstructed_block{};
+
+    // 1. Forward DCT with LUT
+    assert(engine.forward_dct(original_block, dct_coeffs).has_value());
+
+    // 2. Quantization
+    assert(engine.quantize(dct_coeffs, quant_coeffs).has_value());
+
+    // 3. Zig-zag Serialization -> Deserialization
+    assert(engine.zigzag_serialize(quant_coeffs, zigzag_serialized).has_value());
+    assert(engine.zigzag_deserialize(zigzag_serialized, zigzag_deserialized).has_value());
+
+    for (size_t i = 0; i < 64; ++i) {
+        assert(quant_coeffs[i] == zigzag_deserialized[i]);
+    }
+
+    // 4. Dequantization
+    assert(engine.dequantize(zigzag_deserialized, dequant_coeffs).has_value());
+
+    // 5. Inverse DCT with LUT
+    assert(engine.inverse_dct(dequant_coeffs, reconstructed_block).has_value());
+
+    // 6. Signal Fidelity Verification (Root Mean Square Error under Quality Factor 90)
+    float max_error = 0.0f;
+    float sum_squared_error = 0.0f;
+
+    for (size_t i = 0; i < 64; ++i) {
+        const float err = std::abs(original_block[i] - reconstructed_block[i]);
+        sum_squared_error += err * err;
+        if (err > max_error) {
+            max_error = err;
+        }
+    }
+
+    const float rmse = std::sqrt(sum_squared_error / 64.0f);
+
+    // Under Q=90, RMSE must remain exceptionally low (< 3.5 intensity levels)
+    assert(rmse < 3.5f);
+
+    std::cout << "[PASS] Image DCT & Quantization Roundtrip Test (RMSE: " << rmse << ", Max Error: " << max_error << ")\n";
+}
+
 int main() {
-    std::cout << "Running kh-comp Phase 1 & 2 Infrastructure Unit Tests...\n";
+    std::cout << "Running kh-comp Phase 1, 2 & 3.1 Infrastructure Unit Tests...\n";
     test_alignment_enforcement();
     test_bit_packing_and_reading();
     test_boundary_and_overflow_checks();
     test_context_model_adaptation_and_normalization();
     test_arithmetic_coder_roundtrip();
+    test_image_dct_quantization_roundtrip();
     std::cout << "All Unit Tests Passed Successfully.\n";
     return 0;
 }
